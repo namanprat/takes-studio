@@ -1,0 +1,8 @@
+# File: netlify.toml
+
+[[headers]]
+  # Apply these headers to all files in the site
+  for = "/*"
+  [headers.values]
+    # Allow requests from any origin (*)
+    Access-Control-Allow-Origin = "*"

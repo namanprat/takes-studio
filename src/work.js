@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { projects } from "./data.js";
 import { vertexShader, fragmentShader } from "./shaders.js";
 
 function three() {
@@ -12,6 +11,9 @@ function three() {
         textColor: "rgba(128, 128, 128, 1)",
         hoverColor: "rgba(255, 255, 255, 0)",
     };
+    
+    // <<< FIX 1: A constant for grid columns to solve the multiple-item bug.
+    const GRID_COLS = 3.0;
 
     let scene, camera, renderer, plane;
     let isDragging = false,
@@ -24,8 +26,62 @@ function three() {
     let zoomLevel = 1.0,
         targetZoom = 1.0;
     let textTextures = [];
+    let projects = [];
+
+    const extractProjectsFromHTML = () => {
+        // ... (This function is unchanged)
+        const projectElements = document.querySelectorAll('[data-project]');
+        const extractedProjects = [];
+
+        projectElements.forEach((element) => {
+            const title = element.getAttribute('data-title') || element.textContent.trim();
+            const year = element.getAttribute('data-year') || new Date().getFullYear().toString();
+            const image = element.getAttribute('data-image') || element.querySelector('img')?.src;
+            const href = element.getAttribute('data-href') || element.href;
+
+            if (title && image) {
+                extractedProjects.push({
+                    title,
+                    year: parseInt(year),
+                    image,
+                    href
+                });
+            }
+        });
+
+        if (extractedProjects.length === 0) {
+            const galleryItems = document.querySelectorAll('.gallery-item, .project-item');
+            galleryItems.forEach((item) => {
+                const titleElement = item.querySelector('.title, .project-title, h2, h3');
+                const yearElement = item.querySelector('.year, .project-year');
+                const imageElement = item.querySelector('img');
+                const linkElement = item.querySelector('a') || item;
+
+                const title = titleElement?.textContent.trim() || 
+                            item.getAttribute('data-title') || 
+                            'Untitled Project';
+                const year = yearElement?.textContent.trim() || 
+                            item.getAttribute('data-year') || 
+                            new Date().getFullYear().toString();
+                const image = imageElement?.src || item.getAttribute('data-image');
+                const href = linkElement?.href || item.getAttribute('data-href');
+
+                if (image) {
+                    extractedProjects.push({
+                        title,
+                        year: parseInt(year),
+                        image,
+                        href
+                    });
+                }
+            });
+        }
+
+        return extractedProjects;
+    };
 
     const rgbaToArray = (rgba) => {
+        // ... (This function is unchanged)
         const match = rgba.match(/rgba?\(([^)]+)\)/);
         if (!match) return [1, 1, 1, 1];
         return match[1]
@@ -35,14 +91,17 @@ function three() {
             );
     };
 
-    const createTextTexture = (title, year) => {
+    // <<< FIX 2: Modified to accept a font family from the CSS.
+    const createTextTexture = (title, year, fontFamily) => {
         const canvas = document.createElement("canvas");
         canvas.width = 2048;
         canvas.height = 256;
         const ctx = canvas.getContext("2d");
 
         ctx.clearRect(0, 0, 2048, 256);
-        ctx.font = "80px IBM Plex Mono";
+        // <<< FIX 2: Use the font family passed from the init function.
+        // We keep the size '80px' because it's specific to the high-res canvas.
+        ctx.font = `80px ${fontFamily}`;
         ctx.fillStyle = config.textColor;
         ctx.textBaseline = "middle";
         ctx.imageSmoothingEnabled = false;
@@ -67,6 +126,7 @@ function three() {
     };
 
     const createTextureAtlas = (textures, isText = false) => {
+        // ... (This function is unchanged)
         const atlasSize = Math.ceil(Math.sqrt(textures.length));
         const textureSize = 512;
         const canvas = document.createElement("canvas");
@@ -103,16 +163,30 @@ function three() {
         return atlasTexture;
     };
 
-    const loadTextures = () => {
+    // <<< FIX 2: Modified to accept the font family.
+    const loadTextures = (fontFamily) => {
         const textureLoader = new THREE.TextureLoader();
         const imageTextures = [];
         let loadedCount = 0;
 
         return new Promise((resolve) => {
+            if (projects.length === 0) {
+                resolve(imageTextures);
+                return;
+            }
+
             projects.forEach((project) => {
-                const texture = textureLoader.load(project.image, () => {
-                    if (++loadedCount === projects.length) resolve(imageTextures);
-                });
+                const texture = textureLoader.load(
+                    project.image,
+                    () => {
+                        if (++loadedCount === projects.length) resolve(imageTextures);
+                    },
+                    undefined,
+                    (error) => {
+                        console.warn(`Failed to load texture: ${project.image}`, error);
+                        if (++loadedCount === projects.length) resolve(imageTextures);
+                    }
+                );
 
                 Object.assign(texture, {
                     wrapS: THREE.ClampToEdgeWrapping,
@@ -122,12 +196,14 @@ function three() {
                 });
 
                 imageTextures.push(texture);
-                textTextures.push(createTextTexture(project.title, project.year));
+                // <<< FIX 2: Pass the font family to the texture creation function.
+                textTextures.push(createTextTexture(project.title, project.year, fontFamily));
             });
         });
     };
 
     const updateMousePosition = (event) => {
+        // ... (This function is unchanged)
         const rect = renderer.domElement.getBoundingClientRect();
         mousePosition.x = event.clientX - rect.left;
         mousePosition.y = event.clientY - rect.top;
@@ -137,6 +213,7 @@ function three() {
         );
     };
 
+    // ... (All event handler functions like startDrag, onPointerDown, handleMove etc. are unchanged up to onPointerUp)
     const startDrag = (x, y) => {
         isDragging = true;
         isClick = true;
@@ -155,15 +232,12 @@ function three() {
 
     const handleMove = (currentX, currentY) => {
         if (!isDragging || currentX === undefined || currentY === undefined) return;
-
         const deltaX = currentX - previousMouse.x;
         const deltaY = currentY - previousMouse.y;
-
         if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
             isClick = false;
             if (targetZoom === 1.0) targetZoom = config.zoomLevel;
         }
-
         targetOffset.x -= deltaX * 0.003;
         targetOffset.y += deltaY * 0.003;
         previousMouse.x = currentX;
@@ -175,6 +249,7 @@ function three() {
         e.preventDefault();
         handleMove(e.touches[0].clientX, e.touches[0].clientY);
     };
+
 
     const onPointerUp = (event) => {
         isDragging = false;
@@ -200,7 +275,9 @@ function three() {
 
                 const cellX = Math.floor(worldX / config.cellSize);
                 const cellY = Math.floor(worldY / config.cellSize);
-                const texIndex = Math.floor((cellX + cellY * 3.0) % projects.length);
+
+                // <<< FIX 1: Use the GRID_COLS constant for consistent logic.
+                const texIndex = Math.floor((cellX + cellY * GRID_COLS) % projects.length);
                 const actualIndex = texIndex < 0 ? projects.length + texIndex : texIndex;
 
                 if (projects[actualIndex]?.href) {
@@ -209,106 +286,96 @@ function three() {
             }
         }
     };
-
+    // ... (onWindowResize, setupEventListeners, animate are unchanged)
     const onWindowResize = () => {
         const container = document.getElementById("gallery");
         if (!container) return;
-
         const { offsetWidth: width, offsetHeight: height } = container;
         camera.updateProjectionMatrix();
         renderer.setSize(width, height);
         renderer.setPixelRatio(window.devicePixelRatio);
         plane?.material.uniforms.uResolution.value.set(width, height);
     };
-
     const setupEventListeners = () => {
         document.addEventListener("mousedown", onPointerDown);
         document.addEventListener("mousemove", onPointerMove);
         document.addEventListener("mouseup", onPointerUp);
         document.addEventListener("mouseleave", onPointerUp);
-
         const passiveOpts = { passive: false };
         document.addEventListener("touchstart", onTouchStart, passiveOpts);
         document.addEventListener("touchmove", onTouchMove, passiveOpts);
         document.addEventListener("touchend", onPointerUp, passiveOpts);
-
         window.addEventListener("resize", onWindowResize);
         document.addEventListener("contextmenu", (e) => e.preventDefault());
-
         renderer.domElement.addEventListener("mousemove", updateMousePosition);
         renderer.domElement.addEventListener("mouseleave", () => {
             mousePosition.x = mousePosition.y = -1;
             plane?.material.uniforms.uMousePos.value.set(-1, -1);
         });
     };
-
     const animate = () => {
         requestAnimationFrame(animate);
-
         offset.x += (targetOffset.x - offset.x) * config.lerpFactor;
         offset.y += (targetOffset.y - offset.y) * config.lerpFactor;
         zoomLevel += (targetZoom - zoomLevel) * config.lerpFactor;
-
         if (plane?.material.uniforms) {
             plane.material.uniforms.uOffset.value.set(offset.x, offset.y);
             plane.material.uniforms.uZoom.value = zoomLevel;
         }
-
         renderer.render(scene, camera);
     };
 
     const init = async () => {
         const container = document.getElementById("gallery");
-        if (!container) return;
+        if (!container) {
+            console.error("Gallery container not found");
+            return;
+        }
+
+        projects = extractProjectsFromHTML();
+        if (projects.length === 0) {
+            console.warn("No projects found in HTML.");
+            return;
+        }
+        console.log(`Found ${projects.length} projects:`, projects);
+        
+        // <<< FIX 2: Get the computed font family from the document's body.
+        const computedStyle = window.getComputedStyle(document.body);
+        const fontFamily = computedStyle.fontFamily || '"IBM Plex Mono", monospace'; // Fallback
 
         scene = new THREE.Scene();
         camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
         camera.position.z = 1;
-
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         renderer.setSize(container.offsetWidth, container.offsetHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
-
         const bgColor = rgbaToArray(config.backgroundColor);
-        renderer.setClearColor(
-            new THREE.Color(bgColor[0], bgColor[1], bgColor[2]),
-            bgColor[3]
-        );
+        renderer.setClearColor(new THREE.Color(bgColor[0], bgColor[1], bgColor[2]), bgColor[3]);
         container.appendChild(renderer.domElement);
 
-        const imageTextures = await loadTextures();
+        // <<< FIX 2: Pass the detected font family to the texture loader.
+        const imageTextures = await loadTextures(fontFamily);
         const imageAtlas = createTextureAtlas(imageTextures, false);
         const textAtlas = createTextureAtlas(textTextures, true);
 
         const uniforms = {
             uOffset: { value: new THREE.Vector2(0, 0) },
-            uResolution: {
-                value: new THREE.Vector2(container.offsetWidth, container.offsetHeight),
-            },
-            uBorderColor: {
-                value: new THREE.Vector4(...rgbaToArray(config.borderColor)),
-            },
-            uHoverColor: {
-                value: new THREE.Vector4(...rgbaToArray(config.hoverColor)),
-            },
-            uBackgroundColor: {
-                value: new THREE.Vector4(...rgbaToArray(config.backgroundColor)),
-            },
+            uResolution: { value: new THREE.Vector2(container.offsetWidth, container.offsetHeight) },
+            uBorderColor: { value: new THREE.Vector4(...rgbaToArray(config.borderColor)) },
+            uHoverColor: { value: new THREE.Vector4(...rgbaToArray(config.hoverColor)) },
+            uBackgroundColor: { value: new THREE.Vector4(...rgbaToArray(config.backgroundColor)) },
             uMousePos: { value: new THREE.Vector2(-1, -1) },
             uZoom: { value: 1.0 },
             uCellSize: { value: config.cellSize },
             uTextureCount: { value: projects.length },
             uImageAtlas: { value: imageAtlas },
             uTextAtlas: { value: textAtlas },
+            // <<< FIX 1: Pass the grid columns to the shader.
+            uGridCols: { value: GRID_COLS },
         };
 
         const geometry = new THREE.PlaneGeometry(2, 2);
-        const material = new THREE.ShaderMaterial({
-            vertexShader,
-            fragmentShader,
-            uniforms,
-        });
-
+        const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms });
         plane = new THREE.Mesh(geometry, material);
         scene.add(plane);
 

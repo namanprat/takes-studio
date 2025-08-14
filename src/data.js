@@ -1,7 +1,7 @@
 export const projects = [
   {
     title: "Motion Study",
-    image: "/img1.jpeg",
+    image: "./img1.jpeg",
     year: 2024,
     href: "/sample-project",
   },

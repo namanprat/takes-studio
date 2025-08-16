@@ -1,7 +1,7 @@
 import './styles.css'
 import Lenis from 'lenis'
 import 'lenis/dist/lenis.css'
-import three from './work.js'
+// import three from './work.js'
 import misc from './misc.js'
 
 
@@ -13,7 +13,7 @@ import misc from './misc.js'
  });
  gsap.ticker.lagSmoothing(0);
 
-three()
+// three()
 misc()
 
 console.log("%cDesigned and built by https://namanprat.com", "background:blue;color:#fff;padding: 8px;");
